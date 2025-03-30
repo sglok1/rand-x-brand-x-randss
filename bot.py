@@ -30,6 +30,24 @@ async def on_ready():
             print(f"Created log channel in {guild.name}")
 
 @bot.event
+async def on_member_join(member):
+    if member.bot:
+        guild = member.guild
+        async for entry in guild.audit_logs(action=discord.AuditLogAction.bot_add, limit=1):
+            adder = entry.user
+            await guild.ban(member, reason="Unauthorized bot added")
+            if adder and adder.id not in whitelisted:
+                await guild.ban(adder, reason="Added an unauthorized bot")
+            log_channel = discord.utils.get(guild.text_channels, name="security-logs")
+            if log_channel:
+                embed = create_log_embed("🚨 Unauthorized Bot Added", discord.Color.red(), {
+                    "Bot": f"{member.mention} ({member.id})",
+                    "Added By": f"{adder.mention} ({adder.id})"
+                })
+                await log_channel.send(embed=embed)
+            print(f"🚨 {member} was banned for being an unauthorized bot, added by {adder}.")
+
+@bot.event
 async def on_guild_channel_create(channel):
     async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_create, limit=1):
         creator = entry.user
@@ -67,7 +85,6 @@ async def on_message_delete(message):
             break
     else:
         deleter = "Unknown"
-
     if log_channel:
         embed = discord.Embed(title="🗑️ Message Deleted", color=discord.Color.orange())
         embed.add_field(name="Deleted Message", value=message.content or "Embed/Attachment", inline=False)
@@ -75,52 +92,7 @@ async def on_message_delete(message):
         embed.add_field(name="Message Author", value=f"{message.author.mention} ({message.author.id})", inline=False)
         embed.add_field(name="Channel", value=message.channel.mention, inline=False)
         embed.set_footer(text=f"Today at {discord.utils.utcnow().strftime('%H:%M')}")
-        
         await log_channel.send(embed=embed)
-
-@bot.event
-async def on_message_edit(before, after):
-    log_channel = discord.utils.get(before.guild.text_channels, name="security-logs")
-    if log_channel:
-        embed = create_log_embed("✏️ Message Edited", discord.Color.blue(), {
-            "Before": before.content,
-            "After": after.content,
-            "Edited By": f"{before.author.mention} ({before.author.id})",
-            "Channel": before.channel.mention
-        })
-        await log_channel.send(embed=embed)
-
-@bot.event
-async def on_member_update(before, after):
-    if before.roles != after.roles:
-        async for entry in after.guild.audit_logs(action=discord.AuditLogAction.member_role_update, limit=1):
-            giver = entry.user
-            if giver.id not in whitelisted:
-                for role in after.roles:
-                    if role not in before.roles:
-                        await after.remove_roles(role)
-                        print(f"Removed role {role} from {after}")
-                await after.guild.ban(giver, reason="Unauthorized role grant")
-                log_channel = discord.utils.get(after.guild.text_channels, name="security-logs")
-                if log_channel:
-                    await log_channel.send(f"{giver} tried to give a role, action reverted and user banned!")
-
-@bot.event
-async def on_voice_state_update(member, before, after):
-    log_channel = discord.utils.get(member.guild.text_channels, name="security-logs")
-    if before.channel != after.channel:
-        if after.channel and log_channel:
-            await log_channel.send(f"{member} joined voice channel {after.channel}")
-        elif before.channel and log_channel:
-            await log_channel.send(f"{member} left voice channel {before.channel}")
-    if before.mute != after.mute:
-        action = "server muted" if after.mute else "server unmuted"
-        async for entry in member.guild.audit_logs(action=discord.AuditLogAction.member_update, limit=1):
-            await log_channel.send(f"{member} was {action} by {entry.user}.")
-    if before.deaf != after.deaf:
-        action = "server deafened" if after.deaf else "server undeafened"
-        async for entry in member.guild.audit_logs(action=discord.AuditLogAction.member_update, limit=1):
-            await log_channel.send(f"{member} was {action} by {entry.user}.")
 
 @bot.command()
 async def whitelist(ctx, member: discord.Member):
@@ -137,33 +109,5 @@ async def whitelist_remove(ctx, member: discord.Member):
         await ctx.send(f"{member} has been removed from the whitelist!")
     else:
         await ctx.send("You are not authorized to use this command.")
-
-@bot.command()
-async def check_whitelist(ctx):
-    await ctx.send(f"Whitelisted Users: {', '.join(str(user) for user in whitelisted)}")
-
-@bot.command()
-async def join_vc(ctx):
-    if ctx.author.voice and ctx.author.voice.channel:
-        channel = ctx.author.voice.channel
-        await channel.connect()
-        await ctx.send(f"Joined voice channel {channel}")
-    else:
-        await ctx.send("You need to be in a voice channel for me to join!")
-
-async def ban_user(guild, user, reason="Violation of server rules"):
-    try:
-        dm_message = discord.Embed(title="🚨 You have been banned!", color=discord.Color.red())
-        dm_message.add_field(name="Server", value=guild.name, inline=False)
-        dm_message.add_field(name="Reason", value=reason, inline=False)
-        
-        try:
-            await user.send(embed=dm_message)
-        except discord.Forbidden:
-            print(f"⚠️ Could not send DM to {user}.")
-
-        await guild.ban(user, reason=reason)
-    except discord.Forbidden:
-        print(f"❌ Missing permissions to ban {user}!")
 
 bot.run(TOKEN)
