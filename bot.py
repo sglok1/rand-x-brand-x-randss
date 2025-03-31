@@ -28,10 +28,24 @@ def create_log_embed(title, color, fields):
 async def on_ready():
     print(f'Logged in as {bot.user}')
     for guild in bot.guilds:
+        # Check for text log channel
         log_channel = discord.utils.get(guild.text_channels, name="security-logs")
         if log_channel is None:
             log_channel = await guild.create_text_channel("security-logs")
-            print(f"Created log channel in {guild.name}")
+            print(f"Created text log channel in {guild.name}")
+        
+        # Check for voice log channel
+        vc_log_channel = discord.utils.get(guild.voice_channels, name="vc-logs")
+        if vc_log_channel is None:
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(connect=False)
+            }
+            vc_log_channel = await guild.create_voice_channel(
+                "vc-logs",
+                overwrites=overwrites,
+                reason="Automatic VC logging channel creation"
+            )
+            print(f"Created VC log channel in {guild.name}")
 
 @bot.event
 async def on_message(message):
@@ -78,12 +92,14 @@ async def on_guild_channel_create(channel):
         creator = entry.user
         log_channel = discord.utils.get(channel.guild.text_channels, name="security-logs")
         if log_channel:
+            channel_type = "Voice" if isinstance(channel, discord.VoiceChannel) else "Text"
             embed = create_log_embed("🆕 Channel Created", discord.Color.green(), {
                 "Channel": f"{channel.name} ({channel.mention})",
+                "Type": channel_type,
                 "Created By": f"{creator.mention} ({creator.id})"
             })
             await log_channel.send(embed=embed)
-        if creator.id not in whitelisted:
+        if creator.id not in whitelisted and not isinstance(channel, discord.VoiceChannel):
             await channel.delete()
             await channel.guild.ban(creator, reason="Unauthorized channel creation")
 
@@ -93,12 +109,14 @@ async def on_guild_channel_delete(channel):
         deleter = entry.user
         log_channel = discord.utils.get(channel.guild.text_channels, name="security-logs")
         if log_channel:
+            channel_type = "Voice" if isinstance(channel, discord.VoiceChannel) else "Text"
             embed = create_log_embed("❌ Channel Deleted", discord.Color.red(), {
                 "Channel": f"{channel.name}",
+                "Type": channel_type,
                 "Deleted By": f"{deleter.mention} ({deleter.id})"
             })
             await log_channel.send(embed=embed)
-        if deleter.id not in whitelisted:
+        if deleter.id not in whitelisted and not isinstance(channel, discord.VoiceChannel):
             await channel.guild.ban(deleter, reason="Unauthorized channel deletion")
 
 @bot.event
@@ -118,6 +136,70 @@ async def on_message_delete(message):
         embed.add_field(name="Channel", value=message.channel.mention, inline=False)
         embed.set_footer(text=f"Today at {discord.utils.utcnow().strftime('%H:%M')}")
         await log_channel.send(embed=embed)
+
+# VC Logging Events
+@bot.event
+async def on_voice_state_update(member, before, after):
+    log_channel = discord.utils.get(member.guild.text_channels, name="security-logs")
+    vc_log_channel = discord.utils.get(member.guild.voice_channels, name="vc-logs")
+    
+    if not log_channel:
+        return
+    
+    # User joined a voice channel
+    if before.channel is None and after.channel is not None:
+        if after.channel != vc_log_channel:  # Don't log joining the log channel
+            embed = create_log_embed("🎤 Voice Channel Join", discord.Color.green(), {
+                "User": f"{member.mention} ({member.id})",
+                "Channel": after.channel.name,
+                "Time": discord.utils.utcnow().strftime('%H:%M:%S')
+            })
+            await log_channel.send(embed=embed)
+    
+    # User left a voice channel
+    elif before.channel is not None and after.channel is None:
+        if before.channel != vc_log_channel:  # Don't log leaving the log channel
+            embed = create_log_embed("🚪 Voice Channel Leave", discord.Color.blue(), {
+                "User": f"{member.mention} ({member.id})",
+                "Channel": before.channel.name,
+                "Time": discord.utils.utcnow().strftime('%H:%M:%S')
+            })
+            await log_channel.send(embed=embed)
+    
+    # User moved between voice channels
+    elif before.channel is not None and after.channel is not None and before.channel != after.channel:
+        embed = create_log_embed("🔄 Voice Channel Move", discord.Color.gold(), {
+            "User": f"{member.mention} ({member.id})",
+            "From": before.channel.name,
+            "To": after.channel.name,
+            "Time": discord.utils.utcnow().strftime('%H:%M:%S')
+        })
+        await log_channel.send(embed=embed)
+    
+    # User muted/unmuted/deafened/etc.
+    elif before.channel is not None and after.channel is not None and before.channel == after.channel:
+        changes = []
+        if before.self_mute != after.self_mute:
+            changes.append(f"Self Mute: {'🔴 On' if after.self_mute else '🟢 Off'}")
+        if before.self_deaf != after.self_deaf:
+            changes.append(f"Self Deafen: {'🔴 On' if after.self_deaf else '🟢 Off'}")
+        if before.mute != after.mute:
+            changes.append(f"Server Mute: {'🔴 On' if after.mute else '🟢 Off'}")
+        if before.deaf != after.deaf:
+            changes.append(f"Server Deafen: {'🔴 On' if after.deaf else '🟢 Off'}")
+        if before.self_stream != after.self_stream:
+            changes.append(f"Stream: {'🔴 On' if after.self_stream else '🟢 Off'}")
+        if before.self_video != after.self_video:
+            changes.append(f"Video: {'🔴 On' if after.self_video else '🟢 Off'}")
+        
+        if changes:
+            embed = create_log_embed("🎙️ Voice State Update", discord.Color.purple(), {
+                "User": f"{member.mention} ({member.id})",
+                "Channel": before.channel.name,
+                "Changes": "\n".join(changes),
+                "Time": discord.utils.utcnow().strftime('%H:%M:%S')
+            })
+            await log_channel.send(embed=embed)
 
 @bot.command()
 async def whitelist(ctx, member: discord.Member):
