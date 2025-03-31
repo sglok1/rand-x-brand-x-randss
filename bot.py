@@ -40,7 +40,7 @@ async def get_log_channel(guild):
 
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user}')
+    print(f'✅ Logged in as {bot.user}')
     for guild in bot.guilds:
         await get_log_channel(guild)
 
@@ -53,7 +53,7 @@ async def on_message(message):
     if LINK_PATTERN.search(message.content):
         if message.author.id not in whitelisted:
             await message.delete()
-            await message.author.send("Links are not allowed in this server.")
+            await message.author.send("🚫 Links are not allowed in this server.")
             
             log_channel = await get_log_channel(message.guild)
             embed = create_log_embed("🚨 Link Deleted", discord.Color.red(), {
@@ -65,6 +65,56 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
+# 🔴 Message Delete Logging
+@bot.event
+async def on_message_delete(message):
+    if message.author.bot:
+        return
+    
+    log_channel = await get_log_channel(message.guild)
+    embed = create_log_embed("🗑️ Message Deleted", discord.Color.orange(), {
+        "User": f"{message.author.mention} ({message.author.id})",
+        "Deleted Message": message.content,
+        "Channel": message.channel.mention
+    })
+    await log_channel.send(embed=embed)
+
+# ✏️ Message Edit Logging
+@bot.event
+async def on_message_edit(before, after):
+    if before.author.bot or before.content == after.content:
+        return
+    
+    log_channel = await get_log_channel(before.guild)
+    embed = create_log_embed("✏️ Message Edited", discord.Color.blue(), {
+        "User": f"{before.author.mention} ({before.author.id})",
+        "Before": before.content,
+        "After": after.content,
+        "Channel": before.channel.mention
+    })
+    await log_channel.send(embed=embed)
+
+# 📂 Channel Create Logging
+@bot.event
+async def on_guild_channel_create(channel):
+    log_channel = await get_log_channel(channel.guild)
+    embed = create_log_embed("📂 Channel Created", discord.Color.green(), {
+        "Channel": channel.mention,
+        "Created At": discord.utils.format_dt(datetime.utcnow(), 'F')
+    })
+    await log_channel.send(embed=embed)
+
+# 🚮 Channel Delete Logging
+@bot.event
+async def on_guild_channel_delete(channel):
+    log_channel = await get_log_channel(channel.guild)
+    embed = create_log_embed("🚮 Channel Deleted", discord.Color.red(), {
+        "Channel": channel.name,
+        "Deleted At": discord.utils.format_dt(datetime.utcnow(), 'F')
+    })
+    await log_channel.send(embed=embed)
+
+# 🎤 Voice Activity Logging
 @bot.event
 async def on_voice_state_update(member, before, after):
     log_channel = await get_log_channel(member.guild)
@@ -73,16 +123,14 @@ async def on_voice_state_update(member, before, after):
     if not before.channel and after.channel:
         embed = create_log_embed("🎤 Voice Channel Join", discord.Color.green(), {
             "User": f"{member.mention} ({member.id})",
-            "Channel": after.channel.mention,
-            "At": discord.utils.format_dt(discord.utils.utcnow(), 'T')
+            "Channel": after.channel.mention
         })
     
     # User left a voice channel
     elif before.channel and not after.channel:
         embed = create_log_embed("🚪 Voice Channel Leave", discord.Color.blue(), {
             "User": f"{member.mention} ({member.id})",
-            "Channel": before.channel.mention,
-            "At": discord.utils.format_dt(discord.utils.utcnow(), 'T')
+            "Channel": before.channel.mention
         })
     
     # User moved between voice channels
@@ -90,8 +138,7 @@ async def on_voice_state_update(member, before, after):
         embed = create_log_embed("🔄 Voice Channel Move", discord.Color.gold(), {
             "User": f"{member.mention} ({member.id})",
             "From": before.channel.mention,
-            "To": after.channel.mention,
-            "At": discord.utils.format_dt(discord.utils.utcnow(), 'T')
+            "To": after.channel.mention
         })
     
     # User was server muted
@@ -99,8 +146,7 @@ async def on_voice_state_update(member, before, after):
         embed = create_log_embed("🔇 User Server Muted", discord.Color.orange(), {
             "User": f"{member.mention} ({member.id})",
             "Channel": before.channel.mention if before.channel else "N/A",
-            "Action By": "Server",
-            "At": discord.utils.format_dt(discord.utils.utcnow(), 'T')
+            "Action By": "Server"
         })
     
     # User was server unmuted
@@ -108,8 +154,7 @@ async def on_voice_state_update(member, before, after):
         embed = create_log_embed("🔊 User Server Unmuted", discord.Color.green(), {
             "User": f"{member.mention} ({member.id})",
             "Channel": before.channel.mention if before.channel else "N/A",
-            "Action By": "Server",
-            "At": discord.utils.format_dt(discord.utils.utcnow(), 'T')
+            "Action By": "Server"
         })
     
     # User was server deafened
@@ -117,8 +162,7 @@ async def on_voice_state_update(member, before, after):
         embed = create_log_embed("🧏 User Server Deafened", discord.Color.orange(), {
             "User": f"{member.mention} ({member.id})",
             "Channel": before.channel.mention if before.channel else "N/A",
-            "Action By": "Server",
-            "At": discord.utils.format_dt(discord.utils.utcnow(), 'T')
+            "Action By": "Server"
         })
     
     # User was server undeafened
@@ -126,17 +170,15 @@ async def on_voice_state_update(member, before, after):
         embed = create_log_embed("🔊 User Server Undeafened", discord.Color.green(), {
             "User": f"{member.mention} ({member.id})",
             "Channel": before.channel.mention if before.channel else "N/A",
-            "Action By": "Server",
-            "At": discord.utils.format_dt(discord.utils.utcnow(), 'T')
+            "Action By": "Server"
         })
     
-    # User was disconnected by force
+    # User was force disconnected
     elif before.channel and after.channel is None and member.voice and member.voice.afk:
         embed = create_log_embed("👢 User Force Disconnected", discord.Color.red(), {
             "User": f"{member.mention} ({member.id})",
             "From": before.channel.mention,
-            "Action By": "Server",
-            "At": discord.utils.format_dt(discord.utils.utcnow(), 'T')
+            "Action By": "Server"
         })
     
     else:
@@ -144,20 +186,22 @@ async def on_voice_state_update(member, before, after):
     
     await log_channel.send(embed=embed)
 
+# 🔓 Whitelist Command
 @bot.command()
 async def whitelist(ctx, member: discord.Member):
     if ctx.author.id == OWNER_ID:
         whitelisted.add(member.id)
-        await ctx.send(f"{member} has been added to the whitelist!")
+        await ctx.send(f"✅ {member} has been added to the whitelist!")
     else:
-        await ctx.send("You are not authorized to use this command.")
+        await ctx.send("🚫 You are not authorized to use this command.")
 
+# 🚫 Remove from Whitelist Command
 @bot.command()
 async def whitelist_remove(ctx, member: discord.Member):
     if ctx.author.id == OWNER_ID:
         whitelisted.discard(member.id)
-        await ctx.send(f"{member} has been removed from the whitelist!")
+        await ctx.send(f"❌ {member} has been removed from the whitelist!")
     else:
-        await ctx.send("You are not authorized to use this command.")
+        await ctx.send("🚫 You are not authorized to use this command.")
 
 bot.run(TOKEN)
