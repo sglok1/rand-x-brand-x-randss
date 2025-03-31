@@ -7,7 +7,6 @@ from datetime import datetime
 
 # Load environment variables
 load_dotenv()
-
 TOKEN = os.getenv("DISCORD_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID"))
 
@@ -44,55 +43,64 @@ async def on_ready():
 
 @bot.event
 async def on_guild_channel_create(channel):
-    if channel.guild.owner_id not in whitelisted:
-        await channel.delete()
-        member = channel.guild.get_member(channel.guild.owner_id)
-        if member:
-            await member.ban(reason="Unauthorized channel creation")
-    log_channel = await get_log_channel(channel.guild)
-    embed = create_log_embed("📂 Channel Created", discord.Color.red(), {"Channel": channel.mention})
-    await log_channel.send(embed=embed)
+    async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_create, limit=1):
+        if entry.user.id not in whitelisted:
+            await channel.delete()
+            await entry.user.ban(reason="Unauthorized channel creation")
+            log_channel = await get_log_channel(channel.guild)
+            embed = create_log_embed("📂 Unauthorized Channel Created", discord.Color.red(), {"User": entry.user.mention})
+            await log_channel.send(embed=embed)
 
 @bot.event
 async def on_guild_channel_delete(channel):
-    log_channel = await get_log_channel(channel.guild)
-    embed = create_log_embed("🚮 Channel Deleted", discord.Color.red(), {"Channel": channel.name})
-    await log_channel.send(embed=embed)
+    async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_delete, limit=1):
+        if entry.user.id not in whitelisted:
+            await entry.user.ban(reason="Unauthorized channel deletion")
+            log_channel = await get_log_channel(channel.guild)
+            embed = create_log_embed("🚮 Unauthorized Channel Deletion", discord.Color.red(), {"User": entry.user.mention})
+            await log_channel.send(embed=embed)
 
 @bot.event
 async def on_guild_role_create(role):
-    await role.delete()
-    log_channel = await get_log_channel(role.guild)
-    embed = create_log_embed("⚠️ Role Created & Removed", discord.Color.red(), {"Role": role.name})
-    await log_channel.send(embed=embed)
+    async for entry in role.guild.audit_logs(action=discord.AuditLogAction.role_create, limit=1):
+        if entry.user.id not in whitelisted:
+            await role.delete()
+            await entry.user.ban(reason="Unauthorized role creation")
+            log_channel = await get_log_channel(role.guild)
+            embed = create_log_embed("⚠️ Unauthorized Role Created", discord.Color.red(), {"User": entry.user.mention})
+            await log_channel.send(embed=embed)
 
 @bot.event
 async def on_guild_role_delete(role):
-    log_channel = await get_log_channel(role.guild)
-    embed = create_log_embed("🚨 Role Deleted", discord.Color.red(), {"Role": role.name})
-    await log_channel.send(embed=embed)
+    async for entry in role.guild.audit_logs(action=discord.AuditLogAction.role_delete, limit=1):
+        if entry.user.id not in whitelisted:
+            await entry.user.ban(reason="Unauthorized role deletion")
+            log_channel = await get_log_channel(role.guild)
+            embed = create_log_embed("🚨 Unauthorized Role Deletion", discord.Color.red(), {"User": entry.user.mention})
+            await log_channel.send(embed=embed)
 
 @bot.event
 async def on_member_update(before, after):
     added_roles = [role for role in after.roles if role not in before.roles]
     if added_roles:
-        for role in added_roles:
-            await after.remove_roles(role)
-        log_channel = await get_log_channel(after.guild)
-        embed = create_log_embed("⚠️ Unauthorized Role Assignment", discord.Color.red(), {"User": after.mention, "Removed Role": ', '.join([role.name for role in added_roles])})
-        await log_channel.send(embed=embed)
-        await after.ban(reason="Unauthorized role assignment")
+        async for entry in after.guild.audit_logs(action=discord.AuditLogAction.member_role_update, limit=1):
+            if entry.user.id not in whitelisted:
+                for role in added_roles:
+                    await after.remove_roles(role)
+                await entry.user.ban(reason="Unauthorized role assignment")
+                log_channel = await get_log_channel(after.guild)
+                embed = create_log_embed("⚠️ Unauthorized Role Assignment", discord.Color.red(), {"User": entry.user.mention})
+                await log_channel.send(embed=embed)
 
 @bot.event
 async def on_member_join(member):
     if member.bot:
-        adder = None
-        async for entry in member.guild.audit_logs(action=discord.AuditLogAction.bot_add):
-            if entry.target == member:
-                adder = entry.user
-                break
-        if adder:
-            await adder.ban(reason="Unauthorized bot addition")
-        await member.kick(reason="Bots are not allowed")
-    
+        async for entry in member.guild.audit_logs(action=discord.AuditLogAction.bot_add, limit=1):
+            if entry.user.id not in whitelisted:
+                await entry.user.ban(reason="Unauthorized bot addition")
+                await member.kick(reason="Unauthorized bot")
+                log_channel = await get_log_channel(member.guild)
+                embed = create_log_embed("🚫 Unauthorized Bot Added", discord.Color.red(), {"User": entry.user.mention})
+                await log_channel.send(embed=embed)
+
 bot.run(TOKEN)
