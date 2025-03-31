@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import os
 from dotenv import load_dotenv
+import re
 
 # Load environment variables
 load_dotenv()
@@ -12,6 +13,9 @@ OWNER_ID = int(os.getenv("OWNER_ID"))
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 whitelisted = {OWNER_ID}
+
+# Regex pattern for detecting links
+LINK_PATTERN = re.compile(r"(https?://\S+|www\.\S+)")
 
 def create_log_embed(title, color, fields):
     embed = discord.Embed(title=title, color=color)
@@ -28,6 +32,27 @@ async def on_ready():
         if log_channel is None:
             log_channel = await guild.create_text_channel("security-logs")
             print(f"Created log channel in {guild.name}")
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    # Check for links
+    if LINK_PATTERN.search(message.content):
+        if message.author.id not in whitelisted:
+            await message.delete()
+            await message.author.send("Fuck you teri beti chodo BEN KE LODE")
+            
+            log_channel = discord.utils.get(message.guild.text_channels, name="security-logs")
+            if log_channel:
+                embed = create_log_embed("🚨 Link Deleted", discord.Color.red(), {
+                    "User": f"{message.author.mention} ({message.author.id})",
+                    "Deleted Link": message.content
+                })
+                await log_channel.send(embed=embed)
+
+    await bot.process_commands(message)
 
 @bot.event
 async def on_member_join(member):
