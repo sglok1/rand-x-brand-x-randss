@@ -14,8 +14,6 @@ OWNER_ID = int(os.getenv("OWNER_ID"))
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 whitelisted = {OWNER_ID}
-
-# Regex pattern for detecting links
 LINK_PATTERN = re.compile(r"(https?://\S+|www\.\S+)")
 
 def create_log_embed(title, color, fields):
@@ -45,163 +43,56 @@ async def on_ready():
         await get_log_channel(guild)
 
 @bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-
-    # Check for links
-    if LINK_PATTERN.search(message.content):
-        if message.author.id not in whitelisted:
-            await message.delete()
-            await message.author.send("🚫 Links are not allowed in this server.")
-            
-            log_channel = await get_log_channel(message.guild)
-            embed = create_log_embed("🚨 Link Deleted", discord.Color.red(), {
-                "User": f"{message.author.mention} ({message.author.id})",
-                "Deleted Link": message.content,
-                "Channel": message.channel.mention
-            })
-            await log_channel.send(embed=embed)
-
-    await bot.process_commands(message)
-
-# 🔴 Message Delete Logging
-@bot.event
-async def on_message_delete(message):
-    if message.author.bot:
-        return
-    
-    log_channel = await get_log_channel(message.guild)
-    embed = create_log_embed("🗑️ Message Deleted", discord.Color.orange(), {
-        "User": f"{message.author.mention} ({message.author.id})",
-        "Deleted Message": message.content,
-        "Channel": message.channel.mention
-    })
-    await log_channel.send(embed=embed)
-
-# ✏️ Message Edit Logging
-@bot.event
-async def on_message_edit(before, after):
-    if before.author.bot or before.content == after.content:
-        return
-    
-    log_channel = await get_log_channel(before.guild)
-    embed = create_log_embed("✏️ Message Edited", discord.Color.blue(), {
-        "User": f"{before.author.mention} ({before.author.id})",
-        "Before": before.content,
-        "After": after.content,
-        "Channel": before.channel.mention
-    })
-    await log_channel.send(embed=embed)
-
-# 📂 Channel Create Logging
-@bot.event
 async def on_guild_channel_create(channel):
+    if channel.guild.owner_id not in whitelisted:
+        await channel.delete()
+        member = channel.guild.get_member(channel.guild.owner_id)
+        if member:
+            await member.ban(reason="Unauthorized channel creation")
     log_channel = await get_log_channel(channel.guild)
-    embed = create_log_embed("📂 Channel Created", discord.Color.green(), {
-        "Channel": channel.mention,
-        "Created At": discord.utils.format_dt(datetime.utcnow(), 'F')
-    })
+    embed = create_log_embed("📂 Channel Created", discord.Color.red(), {"Channel": channel.mention})
     await log_channel.send(embed=embed)
 
-# 🚮 Channel Delete Logging
 @bot.event
 async def on_guild_channel_delete(channel):
     log_channel = await get_log_channel(channel.guild)
-    embed = create_log_embed("🚮 Channel Deleted", discord.Color.red(), {
-        "Channel": channel.name,
-        "Deleted At": discord.utils.format_dt(datetime.utcnow(), 'F')
-    })
+    embed = create_log_embed("🚮 Channel Deleted", discord.Color.red(), {"Channel": channel.name})
     await log_channel.send(embed=embed)
 
-# 🎤 Voice Activity Logging
 @bot.event
-async def on_voice_state_update(member, before, after):
-    log_channel = await get_log_channel(member.guild)
-    
-    # User joined a voice channel
-    if not before.channel and after.channel:
-        embed = create_log_embed("🎤 Voice Channel Join", discord.Color.green(), {
-            "User": f"{member.mention} ({member.id})",
-            "Channel": after.channel.mention
-        })
-    
-    # User left a voice channel
-    elif before.channel and not after.channel:
-        embed = create_log_embed("🚪 Voice Channel Leave", discord.Color.blue(), {
-            "User": f"{member.mention} ({member.id})",
-            "Channel": before.channel.mention
-        })
-    
-    # User moved between voice channels
-    elif before.channel and after.channel and before.channel != after.channel:
-        embed = create_log_embed("🔄 Voice Channel Move", discord.Color.gold(), {
-            "User": f"{member.mention} ({member.id})",
-            "From": before.channel.mention,
-            "To": after.channel.mention
-        })
-    
-    # User was server muted
-    elif not before.mute and after.mute:
-        embed = create_log_embed("🔇 User Server Muted", discord.Color.orange(), {
-            "User": f"{member.mention} ({member.id})",
-            "Channel": before.channel.mention if before.channel else "N/A",
-            "Action By": "Server"
-        })
-    
-    # User was server unmuted
-    elif before.mute and not after.mute:
-        embed = create_log_embed("🔊 User Server Unmuted", discord.Color.green(), {
-            "User": f"{member.mention} ({member.id})",
-            "Channel": before.channel.mention if before.channel else "N/A",
-            "Action By": "Server"
-        })
-    
-    # User was server deafened
-    elif not before.deaf and after.deaf:
-        embed = create_log_embed("🧏 User Server Deafened", discord.Color.orange(), {
-            "User": f"{member.mention} ({member.id})",
-            "Channel": before.channel.mention if before.channel else "N/A",
-            "Action By": "Server"
-        })
-    
-    # User was server undeafened
-    elif before.deaf and not after.deaf:
-        embed = create_log_embed("🔊 User Server Undeafened", discord.Color.green(), {
-            "User": f"{member.mention} ({member.id})",
-            "Channel": before.channel.mention if before.channel else "N/A",
-            "Action By": "Server"
-        })
-    
-    # User was force disconnected
-    elif before.channel and after.channel is None and member.voice and member.voice.afk:
-        embed = create_log_embed("👢 User Force Disconnected", discord.Color.red(), {
-            "User": f"{member.mention} ({member.id})",
-            "From": before.channel.mention,
-            "Action By": "Server"
-        })
-    
-    else:
-        return
-    
+async def on_guild_role_create(role):
+    await role.delete()
+    log_channel = await get_log_channel(role.guild)
+    embed = create_log_embed("⚠️ Role Created & Removed", discord.Color.red(), {"Role": role.name})
     await log_channel.send(embed=embed)
 
-# 🔓 Whitelist Command
-@bot.command()
-async def whitelist(ctx, member: discord.Member):
-    if ctx.author.id == OWNER_ID:
-        whitelisted.add(member.id)
-        await ctx.send(f"✅ {member} has been added to the whitelist!")
-    else:
-        await ctx.send("🚫 You are not authorized to use this command.")
+@bot.event
+async def on_guild_role_delete(role):
+    log_channel = await get_log_channel(role.guild)
+    embed = create_log_embed("🚨 Role Deleted", discord.Color.red(), {"Role": role.name})
+    await log_channel.send(embed=embed)
 
-# 🚫 Remove from Whitelist Command
-@bot.command()
-async def whitelist_remove(ctx, member: discord.Member):
-    if ctx.author.id == OWNER_ID:
-        whitelisted.discard(member.id)
-        await ctx.send(f"❌ {member} has been removed from the whitelist!")
-    else:
-        await ctx.send("🚫 You are not authorized to use this command.")
+@bot.event
+async def on_member_update(before, after):
+    added_roles = [role for role in after.roles if role not in before.roles]
+    if added_roles:
+        for role in added_roles:
+            await after.remove_roles(role)
+        log_channel = await get_log_channel(after.guild)
+        embed = create_log_embed("⚠️ Unauthorized Role Assignment", discord.Color.red(), {"User": after.mention, "Removed Role": ', '.join([role.name for role in added_roles])})
+        await log_channel.send(embed=embed)
+        await after.ban(reason="Unauthorized role assignment")
 
+@bot.event
+async def on_member_join(member):
+    if member.bot:
+        adder = None
+        async for entry in member.guild.audit_logs(action=discord.AuditLogAction.bot_add):
+            if entry.target == member:
+                adder = entry.user
+                break
+        if adder:
+            await adder.ban(reason="Unauthorized bot addition")
+        await member.kick(reason="Bots are not allowed")
+    
 bot.run(TOKEN)
