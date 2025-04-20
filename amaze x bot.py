@@ -3,7 +3,7 @@ from discord.ext import commands, tasks
 import os
 from dotenv import load_dotenv
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import defaultdict
 import asyncio
 import json
@@ -52,7 +52,6 @@ async def on_ready():
         await backup_server_data(guild)
     auto_backup.start()
 
-# 🔁 Automatic Backup Every 10 Minutes
 @tasks.loop(minutes=10)
 async def auto_backup():
     for guild in bot.guilds:
@@ -105,11 +104,29 @@ async def on_message(message):
     message_count[uid].append(now)
     message_count[uid] = [t for t in message_count[uid] if now - t < 5]
 
+    # Spam Protection
     if len(message_count[uid]) > 5:
         await mute_user(message.author)
         log_channel = await get_log_channel(message.guild)
         embed = create_log_embed("⚠️ User Muted for Spamming", discord.Color.orange(), {"User": message.author.mention, "Reason": "Excessive Messaging"})
         await log_channel.send(embed=embed)
+
+    # Anti-Link Protection (exempt whitelisted users)
+    if LINK_PATTERN.search(message.content) and message.author.id not in whitelisted:
+        await message.delete()
+        log_channel = await get_log_channel(message.guild)
+        embed = create_log_embed("🚫 Link Deleted", discord.Color.orange(), {"User": message.author.mention, "Link": message.content})
+        await log_channel.send(embed=embed)
+
+    # @everyone / @here Timeout Protection
+    if ("@everyone" in message.content or "@here" in message.content) and message.author.id not in whitelisted:
+        try:
+            await message.author.timeout(until=datetime.utcnow() + timedelta(minutes=10), reason="Mass mention detected")
+            log_channel = await get_log_channel(message.guild)
+            embed = create_log_embed("🚷 Mass Mention - Timeout Applied", discord.Color.orange(), {"User": message.author.mention, "Reason": "Used @everyone or @here"})
+            await log_channel.send(embed=embed)
+        except:
+            pass
 
     await bot.process_commands(message)
 
