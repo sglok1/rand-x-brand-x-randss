@@ -3,7 +3,7 @@ from discord.ext import commands
 import asyncio
 
 TOKEN = "MTM1NTc5MjIzMzIzMTU0ODU5Nw.G77Wwi.HtMVaQ55_PvooI-dglf6wV-v_7iV9MHqAiLpo0"
-OWNER_ID = 1355780209789501530  
+OWNER_ID = 1229802108463743036  
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
